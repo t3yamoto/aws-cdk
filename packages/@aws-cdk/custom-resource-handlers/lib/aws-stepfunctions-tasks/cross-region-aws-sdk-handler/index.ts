@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable no-console */
 
+import { STSClient, AssumeRoleCommand } from '@aws-sdk/client-sts';
+
 type Event = {
   /**
    * AWS Region name to call the service
@@ -26,6 +28,11 @@ type Event = {
    * request parameters to call the API (must be in AWS SDK for JS v3 style)
    */
   parameters?: any;
+
+  /**
+   * request parameters to call the API (must be in AWS SDK for JS v3 style)
+   */
+  roleArnToAssume?: any;
 };
 
 // reference: code from CDK AwsCustomResource
@@ -69,12 +76,35 @@ export const handler = async (event: Event) => {
   console.log('Event: ', event);
 
   try {
+    let credentials;
+    if (event.roleArnToAssume) {
+      const stsClient = new STSClient({});
+      const assumeRoleCommand = new AssumeRoleCommand({
+        RoleArn: event.roleArnToAssume.roleArn,
+        RoleSessionName: 'test',
+      });
+      const assumedRole = await stsClient.send(assumeRoleCommand);
+      credentials = assumedRole.Credentials;
+      if (!credentials) {
+        // eslint-disable-next-line @cdklabs/no-throw-default-error
+        throw new Error('Failed to assume role: No credentials found.');
+      }
+    }
+
     // esbuild-disable unsupported-require-call -- not esbuildable but that's fine
     const pkg = require(`@aws-sdk/client-${event.service}`);
     const Client = findV3ClientConstructor(pkg);
     const Command = findCommandClass(pkg, event.action);
 
-    const client = new Client({ region: event.region, endpoint: event.endpoint });
+    const client = new Client({
+      region: event.region,
+      endpoint: event.endpoint,
+      credentials: {
+        accessKeyId: credentials?.AccessKeyId,
+        secretAccessKey: credentials?.SecretAccessKey,
+        sessionToken: credentials?.SessionToken,
+      },
+    });
     const command = new Command(event.parameters ?? {});
     const res = await client.send(command);
 
