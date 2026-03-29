@@ -86,6 +86,13 @@ interface CallAwsServiceCrossRegionOptions {
    * @default true
    */
   readonly retryOnServiceExceptions?: boolean;
+
+  /**
+   * The credentials to use for the AWS SDK calls.
+   *
+   * @default - No credentials, the Lambda's execution role will be used.
+   */
+  readonly awsSdkCredentials?: sfn.Credentials;
 }
 
 /**
@@ -175,6 +182,13 @@ export class CallAwsServiceCrossRegion extends sfn.TaskStateBase {
         actions: [props.iamAction ?? `${iamService}:${props.action}`],
       }),
       ...(props.additionalIamStatements ?? []),
+      new iam.PolicyStatement({
+        resources: ['*'],
+        actions: [
+          // needed to assume roles in other accounts, if specified in awsSdkCredentials
+          'sts:AssumeRole',
+        ],
+      }),
     ].forEach((policy) => this.lambdaFunction.addToRolePolicy(policy));
 
     this.taskPolicies = [
@@ -211,6 +225,7 @@ export class CallAwsServiceCrossRegion extends sfn.TaskStateBase {
           action: this.props.action,
           service: this.props.service,
           parameters: this.props.parameters,
+          roleArnToAssume: this.props.awsSdkCredentials?.role,
         }, queryLanguage),
       };
     } else {
@@ -224,6 +239,7 @@ export class CallAwsServiceCrossRegion extends sfn.TaskStateBase {
             action: this.props.action,
             service: this.props.service,
             parameters: this.props.parameters,
+            roleArnToAssume: this.props.awsSdkCredentials?.role,
           },
         }, queryLanguage),
       };
